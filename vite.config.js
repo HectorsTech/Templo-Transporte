@@ -8,24 +8,23 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    // Ofuscación LIGERA para evitar errores con Lazy Loading
     obfuscator({
       global: true,
       options: {
-        // Configuración EQUILIBRADA (Seguridad vs Velocidad)
         compact: true,
-        controlFlowFlattening: false, // Apagado para evitar bloqueo de thread
-        deadCodeInjection: false,     // Apagado para reducir tamaño de bundle
-        debugProtection: false,       // Apagado para evitar ciclos de CPU
+        controlFlowFlattening: false,
+        deadCodeInjection: false,
+        debugProtection: false,
         disableConsoleOutput: true,
         identifierNamesGenerator: 'hexadecimal',
         log: false,
-        numbersToExpressions: false, // Apagado para mejor parsing
+        numbersToExpressions: false,
         rotateStringArray: true,
-        selfDefending: false,        // Apagado, causa muchos problemas de performance
+        selfDefending: false,
         shuffleStringArray: true,
         splitStrings: false,
         stringArray: true,
-        stringArrayEncoding: ['rc4'],
         stringArrayThreshold: 0.5,
       },
     }),
@@ -33,11 +32,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          ui: ['lucide-react'],
-          supabase: ['@supabase/supabase-js']
-        }
+        // Quitamos manualChunks agresivo por ahora para estabilizar
+        // Vite ya hace code-splitting automático con los dynamic imports de App.jsx
+        manualChunks: undefined
       }
     },
     chunkSizeWarningLimit: 1000
