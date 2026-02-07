@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import emailjs from '@emailjs/browser';
 import { 
   ArrowLeft, Save, Plus, Trash2, Clock, MapPin, DollarSign, 
-  Loader2, CheckCircle, AlertCircle, Edit2, X, RotateCcw, Power, QrCode, Calendar, Users, ChevronDown, ChevronUp, BellRing, Bus
+  Loader2, CheckCircle, AlertCircle, Edit2, X, RotateCcw, Power, QrCode, Calendar, Users, ChevronDown, ChevronUp, BellRing, Bus, MessageCircle
 } from 'lucide-react';
 
 const DAYS_OF_WEEK = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
@@ -848,7 +848,7 @@ export function AdminDashboard() {
                                                           className="inline-flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white rounded text-xs font-medium transition"
                                                           title="Contactar por WhatsApp"
                                                         >
-                                                          <Bus className="w-3 h-3" />
+                                                          <MessageCircle className="w-5 h-5" />
                                                         </a>
                                                      )}
                                                      <div className="text-right">
