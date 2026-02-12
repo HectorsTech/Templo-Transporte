@@ -2,16 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
-import { Resend } from 'resend';
+import transporter from './config/email.js';
 import pool from './config/database.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// Inicializar Resend
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ==================== MIDDLEWARE ====================
 
@@ -27,6 +24,7 @@ app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
+
 
 // ==================== HEALTH CHECK ====================
 
@@ -852,8 +850,8 @@ async function enviarEmailConfirmacion(data) {
   const { nombre, email, origen, destino, fecha, hora, codigo, precio, parada_abordaje, hora_abordaje } = data;
 
   try {
-    const { data: result, error } = await resend.emails.send({
-      from: 'Boletera Templo <onboarding@resend.dev>',
+    const mailOptions = {
+      from: `"Boletera Templo" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: `✅ Boleto Confirmado - ${codigo}`,
       html: `
@@ -868,9 +866,13 @@ async function enviarEmailConfirmacion(data) {
             .header h1 { margin: 0; font-size: 28px; }
             .content { padding: 30px; }
             .ticket-box { background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; padding: 20px; margin: 20px 0; }
-            .ticket-row { padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+            .ticket-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+            .ticket-row:last-child { border-bottom: none; }
+            .label { color: #6b7280; font-size: 14px; }
+            .value { font-weight: 600; color: #111827; }
             .code-box { background: #fef3c7; border: 2px solid #fbbf24; border-radius: 8px; padding: 20px; text-align: center; margin: 30px 0; }
             .code { font-size: 24px; font-weight: 700; color: #92400e; letter-spacing: 3px; font-family: monospace; }
+            .alert { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 4px; margin: 20px 0; }
             .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 13px; }
           </style>
         </head>
@@ -878,50 +880,58 @@ async function enviarEmailConfirmacion(data) {
           <div class="container">
             <div class="header">
               <h1>🎫 ¡Boleto Confirmado!</h1>
+              <p style="margin: 10px 0 0 0; opacity: 0.9;">Tu reserva ha sido procesada exitosamente</p>
             </div>
             <div class="content">
               <p>Hola <strong>${nombre}</strong>,</p>
-              <p>Tu viaje de <strong>${origen}</strong> a <strong>${destino}</strong> está confirmado.</p>
-                <div class="ticket-box">
-                  <h3>📍 Detalles del Viaje</h3>
-                  ${parada_abordaje && parada_abordaje !== origen ? `
-                    <div class="ticket-row">
-                      <span class="label">🚏 Punto de abordaje:</span> <strong class="value">${parada_abordaje}</strong>
-                    </div>
-                    <div class="ticket-row">
-                      <span class="label">Hora de abordaje:</span> <strong class="value">${hora_abordaje ? (typeof hora_abordaje === 'string' ? hora_abordaje.substring(0, 5) : hora_abordaje) : hora}</strong>
-                    </div>
-                  ` : ''}
-                  <div class="ticket-row"><strong>Ruta:</strong> ${origen} - ${destino}</div>
-                  <div class="ticket-row"><strong>Fecha:</strong> ${fecha}</div>
-                  <div class="ticket-row"><strong>Hora Salida:</strong> ${hora}</div>
-                  <div class="ticket-row"><strong>Precio:</strong> $${precio} MXN</div>
-                </div>
+              <p>Tu boleto para el viaje <strong>${origen}</strong> → <strong>${destino}</strong> ha sido confirmado.</p>
+              <div class="ticket-box">
+                <h3 style="margin-top: 0; color: #111827;">📍 Detalles del Viaje</h3>
+                ${parada_abordaje && parada_abordaje !== origen ? `
+                  <div class="ticket-row"><span class="label">🚏 Punto de abordaje</span><span class="value">${parada_abordaje}</span></div>
+                  <div class="ticket-row"><span class="label">Hora de abordaje</span><span class="value">${hora_abordaje ? (typeof hora_abordaje === 'string' ? hora_abordaje.substring(0, 5) : hora_abordaje) : hora}</span></div>
+                ` : ''}
+                <div class="ticket-row"><span class="label">Fecha</span><span class="value">${fecha}</span></div>
+                <div class="ticket-row"><span class="label">Hora de salida/abordaje</span><span class="value">${hora}</span></div>
+                <div class="ticket-row"><span class="label">Origen</span><span class="value">${origen}</span></div>
+                <div class="ticket-row"><span class="label">Destino</span><span class="value">${destino}</span></div>
+                <div class="ticket-row"><span class="label">Precio pagado</span><span class="value">$${precio} MXN</span></div>
+              </div>
               <div class="code-box">
-                <p style="margin: 0 0 10px 0; color: #92400e; font-weight: 600;">CÓDIGO DE RESERVA</p>
+                <p style="margin: 0 0 10px 0; color: #92400e; font-weight: 600;">Tu código de reserva</p>
                 <div class="code">${codigo}</div>
-                <div style="margin-top: 20px;">
+                 <div style="margin-top: 20px;">
                   <img src="https://quickchart.io/qr?text=${encodeURIComponent(codigo)}&size=200" 
                        alt="QR ${codigo}" 
                        style="max-width: 200px; border-radius: 8px; border: 3px solid #92400e;"/>
                   <p style="margin: 10px 0 0 0; font-size: 12px; color: #6b7280;">Escanea este QR al abordar</p>
                 </div>
               </div>
-              <p>¡Buen viaje! 🚌</p>
+              <div class="alert">
+                <p style="margin: 0;"><strong>📱 Importante:</strong></p>
+                <ul style="margin: 10px 0 0 0; padding-left: 20px;">
+                  <li>Presenta este código al abordar</li>
+                  <li>Llega 10 minutos antes de la hora de salida</li>
+                  <li>Guarda este correo para referencia</li>
+                </ul>
+              </div>
+              <p style="margin-top: 30px; color: #6b7280;">¡Buen viaje! 🚌</p>
             </div>
             <div class="footer">
-              <p>Boletera Templo © ${new Date().getFullYear()}</p>
+              <p style="margin: 0;">Boletera Templo © ${new Date().getFullYear()}</p>
             </div>
           </div>
         </body>
         </html>
       `
-    });
+    };
 
-    if (error) throw error;
-    return result;
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Email de confirmación enviado:', info.messageId);
+    return { success: true, messageId: info.messageId };
+
   } catch (error) {
-    console.error('Error enviando email:', error);
+    console.error('❌ Error enviando email de confirmación:', error);
     throw error;
   }
 }
@@ -931,8 +941,8 @@ async function enviarEmailCancelacion(data) {
   const { to_email, to_name, route_name, trip_date, message } = data;
 
   try {
-    const { data: result, error } = await resend.emails.send({
-      from: 'Boletera Templo <onboarding@resend.dev>',
+    const mailOptions = {
+      from: `"Boletera Templo" <${process.env.EMAIL_USER}>`,
       to: to_email,
       subject: `❌ Viaje Cancelado - ${route_name}`,
       html: `
@@ -954,39 +964,51 @@ async function enviarEmailCancelacion(data) {
             <div class="header"><h1>❌ Viaje Cancelado</h1></div>
             <div class="content">
               <p>Hola <strong>${to_name}</strong>,</p>
-              <p>El viaje <strong>${route_name}</strong> del ${trip_date} ha sido cancelado.</p>
-              ${message ? `<div class="info-box"><strong>Motivo:</strong> ${message}</div>` : ''}
-              <p>Contáctanos para tu reembolso.</p>
+              <p>Lamentamos informarte que el siguiente viaje ha sido cancelado:</p>
+              <div class="info-box">
+                <p style="margin: 0;"><strong>Ruta:</strong> ${route_name}</p>
+                <p style="margin: 10px 0 0 0;"><strong>Fecha:</strong> ${trip_date}</p>
+              </div>
+              ${message ? `<p><strong>Motivo:</strong> ${message}</p>` : ''}
+              <p>Tu reembolso será procesado en las próximas 24-48 horas.</p>
+              <p style="margin-top: 30px;">Disculpa las molestias.</p>
+              <p><strong>Equipo Boletera Templo</strong></p>
             </div>
-            <div class="footer"><p>Boletera Templo</p></div>
+            <div class="footer">
+              <p style="margin: 0;">Boletera Templo © ${new Date().getFullYear()}</p>
+            </div>
           </div>
         </body>
         </html>
       `
-    });
+    };
 
-    if (error) throw error;
-    return result;
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Email de cancelación enviado:', info.messageId);
+    return { success: true, messageId: info.messageId };
+
   } catch (error) {
-    console.error('Error enviando email:', error);
+    console.error('❌ Error enviando email de cancelación:', error);
     throw error;
   }
 }
 
 // Endpoints directos de email (para compatibilidad con tu código actual)
+// Confirmación
 app.post('/api/send-confirmation', async (req, res) => {
   try {
     const result = await enviarEmailConfirmacion(req.body);
-    res.json({ success: true, emailId: result.id });
+    res.json({ success: true, emailId: result.messageId });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
+// Cancelación
 app.post('/api/send-cancellation', async (req, res) => {
   try {
     const result = await enviarEmailCancelacion(req.body);
-    res.json({ success: true, emailId: result.id });
+    res.json({ success: true, messageId: result.messageId });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -1002,13 +1024,133 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ==================== CONTACTO ====================
+
+// POST: Enviar mensaje de contacto
+app.post('/api/contacto', async (req, res) => {
+  try {
+    const { nombre, email, telefono, asunto, mensaje } = req.body;
+
+    // Validar campos requeridos
+    if (!nombre || !email || !asunto || !mensaje) {
+      return res.status(400).json({
+        error: 'Faltan campos requeridos: nombre, email, asunto y mensaje son obligatorios'
+      });
+    }
+
+    console.log('📨 Nuevo mensaje de contacto:', {
+      nombre,
+      email,
+      asunto
+    });
+
+    // Configurar email para el admin
+    const mailOptions = {
+      from: `"Boletera Templo" <${process.env.EMAIL_USER}>`,
+      to: process.env.CONTACT_EMAIL,
+      replyTo: email,
+      subject: `[Contacto Web] ${asunto}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: #f3f4f6; margin: 0; padding: 20px; }
+            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 30px 20px; text-align: center; }
+            .content { padding: 30px; }
+            .info-box { background: #f9fafb; border-left: 4px solid #3b82f6; padding: 15px; margin: 15px 0; border-radius: 4px; }
+            .label { font-weight: 600; color: #6b7280; font-size: 14px; margin-bottom: 5px; }
+            .value { color: #111827; font-size: 16px; }
+            .message-box { background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0; white-space: pre-wrap; }
+            .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 13px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1 style="margin: 0;">📨 Nuevo Mensaje de Contacto</h1>
+            </div>
+            <div class="content">
+              <div class="info-box">
+                <div class="label">Nombre</div>
+                <div class="value">${nombre}</div>
+              </div>
+              <div class="info-box">
+                <div class="label">Email</div>
+                <div class="value">${email}</div>
+              </div>
+              ${telefono ? `
+                <div class="info-box">
+                  <div class="label">Teléfono</div>
+                  <div class="value">${telefono}</div>
+                </div>
+              ` : ''}
+              <div class="info-box">
+                <div class="label">Asunto</div>
+                <div class="value">${asunto}</div>
+              </div>
+              <h3 style="margin-top: 30px; color: #111827;">Mensaje:</h3>
+              <div class="message-box">${mensaje}</div>
+              <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
+                💡 Puedes responder directamente a este email para contactar a ${nombre}
+              </p>
+            </div>
+            <div class="footer">
+              <p style="margin: 0;">Boletera Templo © ${new Date().getFullYear()}</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Email de contacto enviado correctamente:', info.messageId);
+
+    // Opcional: Enviar confirmación automática al usuario
+    try {
+      await transporter.sendMail({
+        from: `"Boletera Templo" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: '✅ Mensaje recibido - Boletera Templo',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+            <h2 style="color: #059669; text-align: center;">¡Gracias por contactarnos!</h2>
+            <p>Hola ${nombre},</p>
+            <p>Hemos recibido tu mensaje correctamente. Nuestro equipo lo revisará y te responderemos lo antes posible.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+            <p style="color: #666; font-size: 14px;"><strong>Tu mensaje:</strong><br>${mensaje}</p>
+          </div>
+        `
+      });
+    } catch (autoReplyError) {
+      console.warn('⚠️ No se pudo enviar autorespuesta:', autoReplyError.message);
+    }
+
+    res.json({
+      success: true,
+      mensaje: 'Mensaje enviado correctamente. Te responderemos pronto.',
+      emailId: info.messageId
+    });
+
+  } catch (error) {
+    console.error('Error procesando mensaje de contacto:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // ==================== INICIAR SERVIDOR ====================
 
 app.listen(PORT, () => {
   console.log('================================');
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-  console.log(`📧 Resend: ${process.env.RESEND_API_KEY ? '✅' : '❌'}`);
+  console.log(`📧 Email Service: ${process.env.EMAIL_USER ? '✅' : '❌'}`);
+  console.log(`📬 Email Contacto: ${process.env.CONTACT_EMAIL}`);
   console.log(`🗄️  Base de datos: ${process.env.DB_NAME}`);
   console.log(`🌐 CORS habilitado para: ${process.env.ALLOWED_ORIGIN}`);
   console.log('================================');
 });
+

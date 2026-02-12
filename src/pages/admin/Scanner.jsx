@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Scanner as QrScanner } from '@yudiel/react-qr-scanner';
-import { supabase } from '../../lib/supabase';
+import { buscarReservaPorCodigo, validarReserva } from '../../services/apiService';
 import { Link } from 'react-router-dom';
 import { X, CheckCircle, AlertTriangle, XCircle, ArrowLeft, RefreshCw, Camera } from 'lucide-react';
 
@@ -21,59 +21,35 @@ export function Scanner() {
     setIsScanning(false); // Pausar escáner visualmente
 
     try {
-      // ---------------------------------------------------------
-      // 🛠️ CORRECCIÓN: Detectar si es Código Corto o UUID
-      // ---------------------------------------------------------
-      const isShortCode = rawValue.startsWith('RES-');
-      const searchColumn = isShortCode ? 'codigo_visual' : 'id'; 
-      
-      // Nota: Si tu columna en Supabase se llama diferente a "codigo", 
-      // cambia 'codigo' por el nombre real (ej: 'booking_code').
+      console.log('📷 QR Escaneado:', rawValue);
 
-      // 2. Consultar Supabase
-      const { data: reserva, error } = await supabase
-        .from('reservas')
-        .select(`
-          *,
-          viajes (
-            rutas (
-              origen,
-              destino
-            ),
-            fecha_salida
-          )
-        `)
-        .eq(searchColumn, rawValue) // <--- Busca en la columna correcta dinámicamente
-        .single();
+      // Buscar reserva por código usando el backend MySQL
+      const reserva = await buscarReservaPorCodigo(rawValue);
 
-      if (error || !reserva) {
+      if (!reserva) {
         setScanResult('error');
         setScannedData(null);
         return;
       }
 
-      // 3. Verificar estado
+      console.log('✅ Reserva encontrada:', reserva);
+
+      // Verificar si ya fue validado
       if (reserva.validado) {
         setScanResult('used');
         setScannedData(reserva);
       } else {
-        // 4. Validar el boleto (Check-in)
-        const { error: updateError } = await supabase
-          .from('reservas')
-          .update({ validado: true })
-          .eq('id', reserva.id) // Usamos el ID real que ya encontramos
-          .select()
-          .single();
-
-        if (updateError) throw updateError;
+        // Validar el boleto (Check-in)
+        await validarReserva(reserva.id);
 
         setScanResult('success');
-        setScannedData(reserva);
+        setScannedData({ ...reserva, validado: true });
       }
 
     } catch (err) {
-      console.error(err);
+      console.error('❌ Error escaneando:', err);
       setScanResult('error');
+      setScannedData(null);
     } finally {
       setProcessing(false);
     }
@@ -144,12 +120,12 @@ export function Scanner() {
                     <div>
                        <p className="text-green-100 text-xs uppercase">Ruta</p>
                        <p className="text-white font-medium">
-                         {scannedData.viajes?.rutas?.origen} → {scannedData.viajes?.rutas?.destino}
+                         {scannedData.origen} → {scannedData.destino}
                        </p>
                     </div>
                     <div className="text-right">
                        <p className="text-green-100 text-xs uppercase">Código</p>
-                       <p className="text-white font-mono text-xl">{scannedData.codigo}</p>
+                       <p className="text-white font-mono text-xl">{scannedData.codigo_visual}</p>
                     </div>
                  </div>
               </div>

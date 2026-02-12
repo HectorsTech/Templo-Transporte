@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Bus, MapPin, Loader2, Clock, ArrowRight, Users, ChevronRight, Search } from 'lucide-react';
+import { Bus, MapPin, Loader2, Clock, ArrowRight, Users, ChevronRight, Search, Heart, Shield, Calendar } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { obtenerRutas, obtenerViajes } from '../services/apiService';
 
 const DAYS_OF_WEEK_SHORT = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
 const DAYS_OF_WEEK_FULL = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -17,6 +17,8 @@ export function Home() {
   // Estados para datos dinámicos
   const [availableOrigins, setAvailableOrigins] = useState([]);
   const [availableDestinations, setAvailableDestinations] = useState([]);
+  const [allDestinations, setAllDestinations] = useState([]); // Todos los destinos posibles
+  const [activeRoutes, setActiveRoutes] = useState([]); // Guardar rutas activas
   const [popularRoutes, setPopularRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,20 +33,32 @@ export function Home() {
     async function fetchData() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
-          .from('rutas')
-          .select('*')
-          .eq('activa', true);
+        const data = await obtenerRutas();
 
-        if (error) throw error;
-
-        if (data) {
-          const origins = [...new Set(data.map(r => r.origen))].sort();
-          const destinations = [...new Set(data.map(r => r.destino))].sort();
+          if (data) {
+          const routes = data.filter(r => r.activa);
+          setActiveRoutes(routes); // Guardar para uso posterior
           
-          setAvailableOrigins(origins);
-          setAvailableDestinations(destinations);
-          setPopularRoutes(data.slice(0, 3));
+          // Extraer orígenes incluyendo paradas
+          const allOrigins = new Set();
+          const allDests = new Set();
+          
+          routes.forEach(r => {
+            allOrigins.add(r.origen);
+            allDests.add(r.destino);
+            
+            // Agregar paradas como orígenes posibles si no es solo destino final
+            if (r.paradas && Array.isArray(r.paradas)) {
+              r.paradas.forEach(p => {
+                if (p.name) allOrigins.add(p.name);
+              });
+            }
+          });
+          
+          setAvailableOrigins([...allOrigins].sort());
+          setAllDestinations([...allDests].sort()); // Guardar todos los destinos
+          setAvailableDestinations([...allDests].sort()); // Por defecto, mostrar todos
+          setPopularRoutes(routes.slice(0, 3));
         }
       } catch (error) {
         console.error('Error al cargar datos:', error);
@@ -55,6 +69,39 @@ export function Home() {
 
     fetchData();
   }, []);
+
+  // Filtrar destinos basados en el origen seleccionado
+  useEffect(() => {
+    if (!origin) {
+      // Si no hay origen seleccionado, mostrar todos los destinos
+      setAvailableDestinations(allDestinations);
+      setDestination(''); // Limpiar destino seleccionado
+      return;
+    }
+
+    // Filtrar rutas que tengan el origen seleccionado (directo o parada)
+    const filteredRoutes = activeRoutes.filter(r => {
+      const origenDirecto = r.origen.toLowerCase() === origin.toLowerCase();
+      const paradaMatch = r.paradas && Array.isArray(r.paradas) && r.paradas.some(p => 
+        p.name && p.name.toLowerCase() === origin.toLowerCase()
+      );
+      return origenDirecto || paradaMatch;
+    });
+
+    // Extraer destinos únicos de las rutas filtradas
+    const destinosDisponibles = new Set();
+    filteredRoutes.forEach(r => {
+      destinosDisponibles.add(r.destino);
+    });
+
+    const sortedDestinos = [...destinosDisponibles].sort();
+    setAvailableDestinations(sortedDestinos);
+    
+    // Si el destino seleccionado ya no está disponible, limpiarlo
+    if (destination && !sortedDestinos.includes(destination)) {
+      setDestination('');
+    }
+  }, [origin, activeRoutes, allDestinations, destination]);
 
   // Cargar días disponibles cuando se seleccionen origen y destino
   useEffect(() => {
@@ -71,21 +118,42 @@ export function Home() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // 1. Buscar rutas que coincidan
-        const { data: routes, error: routeError } = await supabase
-          .from('rutas')
-          .select('*')
-          .eq('activa', true)
-          .ilike('origen', `%${origin}%`)
-          .ilike('destino', `%${destination}%`);
+        // 1. Buscar rutas que coincidan (directas o desde paradas)
+        const allRoutes = await obtenerRutas();
+        const routes = allRoutes.filter(r => {
+            if (!r.activa) return false;
+            
+            // Checar destino
+            const destinoMatch = r.destino.toLowerCase().includes(destination.toLowerCase());
+            if (!destinoMatch) return false;
 
-        if (routeError) throw routeError;
+            // Checar origen (directo o parada)
+            const origenDirecto = r.origen.toLowerCase().includes(origin.toLowerCase());
+            const paradaMatch = r.paradas && Array.isArray(r.paradas) && r.paradas.some(p => 
+                p.name && p.name.toLowerCase().includes(origin.toLowerCase())
+            );
+
+            return origenDirecto || paradaMatch;
+        });
+
         if (!routes || routes.length === 0) {
           setAvailableDays([]);
           return;
         }
 
-        // 2. Generar próximos días basados en días operativos
+        // 2. Obtener viajes existentes para checar ocupación (pasamos origin para que el backend filtre/genere virtuales)
+        const futureTrips = await obtenerViajes({ origen: origin, destino: destination });
+        
+        console.log('🚌 Viajes obtenidos del backend:', futureTrips.map(t => ({
+          id: t.id,
+          ruta_id: t.ruta_id,
+          fecha_salida: t.fecha_salida,
+          hora_salida: t.hora_salida,
+          asientos_disponibles: t.asientos_disponibles,
+          asientos_totales: t.asientos_totales
+        })));
+
+        // 3. Generar próximos días basados en días operativos
         const daysToShow = [];
         const daysToGenerate = 30; // Mostrar próximos 30 días
 
@@ -95,40 +163,104 @@ export function Home() {
           const dayOfWeek = DAYS_OF_WEEK_SHORT[currentDate.getDay()];
 
           // Buscar rutas que operen ese día
-          const routesForDay = routes.filter(route => 
-            route.dias_operativos && route.dias_operativos.includes(dayOfWeek)
-          );
+          const routesForDay = routes.filter(route => {
+            const dias = route.dias_operacion || route.dias_operativos;
+            return dias && dias.includes(dayOfWeek);
+          });
 
           if (routesForDay.length > 0) {
             // Para cada ruta, calcular disponibilidad
             for (const route of routesForDay) {
-              const dateStr = currentDate.toISOString().split('T')[0];
-              const localDateTimeString = `${dateStr}T${route.hora_salida}:00`;
-              const fechaSalidaISO = new Date(localDateTimeString).toISOString();
+              const year = currentDate.getFullYear();
+              const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+              const day = String(currentDate.getDate()).padStart(2, '0');
+              const dateStr = `${year}-${month}-${day}`;
+              
+              // Calcular hora y precio ajustados si el origen es una parada intermedia
+              let adjustedTime = route.hora_salida;
+              let adjustedPrice = route.precio;
+              let originName = route.origen;
 
-              // Consultar viaje específico
-              const { data: tripData } = await supabase
-                .from('viajes')
-                .select('asientos_ocupados')
-                .eq('ruta_id', route.id)
-                .eq('fecha_salida', fechaSalidaISO)
-                .maybeSingle();
+              // Si el origen buscado no coincide con el origen de la ruta, buscar en paradas
+              if (origin && route.origen.toLowerCase() !== origin.toLowerCase() && route.paradas) {
+                  const stop = route.paradas.find(p => p.name && p.name.toLowerCase().includes(origin.toLowerCase()));
+                  if (stop) {
+                      originName = stop.name;
+                      
+                      // Ajustar hora
+                      if (stop.time) {
+                          // Si es hora absoluta, calcular diff para saber si es el mismo viaje
+                          // Pero para mostrar, usamos la hora de la parada
+                           adjustedTime = stop.time;
+                      } else if (stop.timeOffset) {
+                          // Calcular hora basada en offset
+                          const [h, m] = route.hora_salida.split(':').map(Number);
+                          const totalMin = h * 60 + m + stop.timeOffset;
+                          const newH = Math.floor(totalMin / 60) % 24;
+                          const newM = totalMin % 60;
+                          adjustedTime = `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}:00`; // Asegurar formato HH:mm:ss
+                      }
 
-              const ocupados = tripData ? tripData.asientos_ocupados : 0;
-              const disponibles = route.capacidad - ocupados;
+                      // Ajustar precio
+                      if (stop.precio_desde_aqui) {
+                          adjustedPrice = stop.precio_desde_aqui;
+                      } else {
+                          // Calcular proporcional si no hay precio fijo
+                          // (Simple fallback, idealmente el backend decide esto)
+                          // Si no hay precio explícito, mostramos "Desde $X" o el base
+                      }
+                  }
+              }
+
+              // Formatear hora para comparación (asegurar HH:mm:ss)
+              const formatTime = (t) => {
+                  if (!t) return '00:00:00';
+                  const parts = t.split(':');
+                  return `${parts[0].padStart(2,'0')}:${parts[1].padStart(2,'0')}:00`;
+              };
+              
+              const targetTime = formatTime(adjustedTime);
+
+              // Buscar si existe un viaje específico para esta ruta y fecha
+              const tripInstance = futureTrips.find(t => {
+                // Extraer solo la parte de fecha (YYYY-MM-DD) del timestamp ISO
+                const tripDate = t.fecha_salida?.split('T')[0];
+                const tripTime = formatTime(t.hora_salida);
+                
+                // Coincidir ruta, fecha y HORA (la hora del viaje virtual debe coincidir con la calculada)
+                return t.ruta_id === route.id && 
+                       tripDate === dateStr &&
+                       tripTime === targetTime;
+              });
+
+              // Si existe un viaje, usar su disponibilidad real; si no, usar capacidad de la ruta
+              const disponibles = tripInstance 
+                ? tripInstance.asientos_disponibles 
+                : route.capacidad;
+
+              // console.log('📅 Fecha:', dateStr, 'Ruta:', route.nombre, {
+              //   tripFound: !!tripInstance,
+              //   tripId: tripInstance?.id,
+              //   asientos_disponibles: tripInstance?.asientos_disponibles,
+              //   route_capacidad: route.capacidad,
+              //   disponibles_final: disponibles,
+              //   adjustedTime,
+              //   targetTime
+              // });
 
               if (disponibles > 0) {
                 daysToShow.push({
                   routeId: route.id,
+                  uniqueId: `${route.id}-${dateStr}-${adjustedTime}`, // ID único para key
                   fecha: dateStr,
                   dia_semana: DAYS_OF_WEEK_FULL[currentDate.getDay()],
                   dia_numero: currentDate.getDate(),
                   mes: MONTHS[currentDate.getMonth()],
-                  hora_salida: route.hora_salida,
+                  hora_salida: adjustedTime.substring(0, 5), // Mostrar solo HH:mm
                   asientos_disponibles: disponibles,
-                  asientos_totales: route.capacidad,
-                  precio: route.precio_base,
-                  nombre_ruta: route.nombre
+                  precio: tripInstance ? tripInstance.precio : adjustedPrice, // Usar precio del viaje si existe (que ya viene ajustado del backend)
+                  origen: originName,
+                  destino: route.destino
                 });
               }
             }
@@ -174,22 +306,6 @@ export function Home() {
 
   return (
     <div className="min-h-screen relative bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bus className="w-8 h-8 text-blue-600" />
-            <h1 className="font-bold text-xl">Boletera Templo</h1>
-          </div>
-          <Link
-            to="/admin"
-            className="text-sm text-gray-600 hover:text-blue-600 transition"
-          >
-            Admin
-          </Link>
-        </div>
-      </header>
-
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-600 via-blue-700 to-blue-900 text-white py-16 px-4">
         <div className="container mx-auto max-w-4xl text-center">
@@ -237,11 +353,18 @@ export function Home() {
                   <select
                     value={destination}
                     onChange={(e) => setDestination(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     required
-                    disabled={loading}
+                    disabled={loading || (origin && availableDestinations.length === 0)}
                   >
-                    <option value="">Selecciona tu destino</option>
+                    <option value="">
+                      {!origin 
+                        ? 'Selecciona tu destino' 
+                        : availableDestinations.length === 0 
+                          ? 'No hay destinos disponibles desde este origen'
+                          : 'Selecciona tu destino'
+                      }
+                    </option>
                     {availableDestinations.map((dest) => (
                       <option key={dest} value={dest}>{dest}</option>
                     ))}
@@ -367,7 +490,7 @@ export function Home() {
                         <Clock className="w-4 h-4" /> {route.hora_salida || 'Por definir'}
                       </span>
                       <span className="font-bold text-blue-600">
-                        ${route.precio_base}
+                        ${route.precio}
                       </span>
                     </div>
                   </div>
@@ -377,6 +500,150 @@ export function Home() {
           ) : (
              <p className="text-gray-500 text-center">No hay rutas activas disponibles.</p>
           )}
+        </div>
+      </section>
+
+      {/* Blog / About Section */}
+      <section className="py-16 px-4 bg-gray-50">
+        <div className="container mx-auto max-w-6xl">
+          <div className="text-center mb-12">
+            <h3 className="text-3xl font-bold text-gray-900 mb-3">
+              Conoce más sobre nosotros
+            </h3>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Conectando a las familias con los lugares sagrados, un viaje a la vez
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {/* Article 1 - Quiénes Somos */}
+            <article className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition group">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src="https://images.unsplash.com/photo-1628880536991-8729fcd571a0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxMRFMlMjB0ZW1wbGUlMjBtb3Jtb24lMjBjaHVyY2h8ZW58MXx8fHwxNzcwODU2OTIzfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+                  alt="Templo SUD"
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                />
+              </div>
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Heart className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h4 className="font-bold text-lg text-gray-900">
+                    Nuestra Misión
+                  </h4>
+                </div>
+                <p className="text-gray-600 mb-4 leading-relaxed">
+                  Facilitar el acceso a los templos de la Iglesia de Jesucristo de los Santos de los Últimos Días, 
+                  brindando un servicio de transporte cómodo, seguro y accesible para todas las familias.
+                </p>
+                <button className="flex items-center gap-1 text-blue-600 font-medium hover:gap-2 transition-all">
+                  Leer más
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </article>
+
+            {/* Article 2 - Por Qué Elegirnos */}
+            <article className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition group">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src="https://images.unsplash.com/photo-1640522337094-8c71d9c1d6f9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwZW9wbGUlMjB0cmF2ZWxpbmclMjB0b2dldGhlciUyMHZhbnxlbnwxfHx8fDE3NzA4NTY5MjN8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+                  alt="Viajando juntos"
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                />
+              </div>
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h4 className="font-bold text-lg text-gray-900">
+                    Por Qué Elegirnos
+                  </h4>
+                </div>
+                <p className="text-gray-600 mb-4 leading-relaxed">
+                  Con más de 10 años de experiencia, conocemos las necesidades de nuestra comunidad. 
+                  Conductores capacitados, unidades modernas y salidas puntuales garantizan tu tranquilidad.
+                </p>
+                <button className="flex items-center gap-1 text-blue-600 font-medium hover:gap-2 transition-all">
+                  Leer más
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </article>
+
+            {/* Article 3 - Comunidad */}
+            <article className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition group">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src="https://images.unsplash.com/photo-1722252799088-4781aabc3d0f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYW1pbHklMjBjb21tdW5pdHklMjBnYXRoZXJpbmd8ZW58MXx8fHwxNzcwODU2OTI0fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+                  alt="Comunidad"
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                />
+              </div>
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Users className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h4 className="font-bold text-lg text-gray-900">
+                    Nuestra Comunidad
+                  </h4>
+                </div>
+                <p className="text-gray-600 mb-4 leading-relaxed">
+                  Formamos parte de una gran familia. Miles de miembros confían en nosotros cada mes 
+                  para sus visitas al templo, sellando ordenanzas y fortaleciendo lazos familiares.
+                </p>
+                <button className="flex items-center gap-1 text-blue-600 font-medium hover:gap-2 transition-all">
+                  Leer más
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="bg-white py-12 px-4">
+        <div className="container mx-auto max-w-4xl">
+          <div className="grid md:grid-cols-3 gap-8 text-center">
+            <div>
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Bus className="w-8 h-8 text-blue-600" />
+              </div>
+              <h4 className="font-semibold text-gray-900 mb-2">
+                Unidades Modernas
+              </h4>
+              <p className="text-sm text-gray-600">
+                Vans equipadas con aire acondicionado y asientos cómodos
+              </p>
+            </div>
+            <div>
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Search className="w-8 h-8 text-blue-600" />
+              </div>
+              <h4 className="font-semibold text-gray-900 mb-2">
+                Reserva Fácil
+              </h4>
+              <p className="text-sm text-gray-600">
+                Sin registro. Solo elige, reserva y recibe tu código QR
+              </p>
+            </div>
+            <div>
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Calendar className="w-8 h-8 text-blue-600" />
+              </div>
+              <h4 className="font-semibold text-gray-900 mb-2">
+                Salidas Frecuentes
+              </h4>
+              <p className="text-sm text-gray-600">
+                Múltiples horarios durante el día para tu comodidad
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 

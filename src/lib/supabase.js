@@ -1,10 +1,9 @@
-import { createClient } from '@supabase/supabase-js'
+// ============================================
+// ARCHIVO DEPRECADO - YA NO SE USA SUPABASE
+// ============================================
+// Este proyecto ahora usa MySQL con backend propio
+// Backend API: http://localhost:3001
+// Ver: src/services/apiService.js
+// ============================================
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('¡Faltan las keys en .env.local!')
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = null; // Deprecado

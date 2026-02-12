@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Clock, MapPin, Users, DollarSign, AlertCircle, Loader2 } from 'lucide-react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { obtenerRutas, obtenerViajes } from '../services/apiService';
 
 export function Results() {
   const [searchParams] = useSearchParams();
@@ -10,18 +10,15 @@ export function Results() {
   const origin = searchParams.get('origin') || '';
   const destination = searchParams.get('destination') || '';
   const date = searchParams.get('date') || '';
-
-  const [trips, setTrips] = useState([]);
-  const [allRouteMatches, setAllRouteMatches] = useState(false); // Para control del mensaje específico
-  const [searchDayLabel, setSearchDayLabel] = useState('');
   
+  const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchDayLabel, setSearchDayLabel] = useState('');
+  const [allRouteMatches, setAllRouteMatches] = useState(false);
 
-  // Helper para obtener el día de la semana en formato corto (Lun, Mar...)
   const getDayLabel = (dateString) => {
     if (!dateString) return '';
-    // Agregamos la hora para asegurar que se interprete en la fecha correcta localmente
     const d = new Date(`${dateString}T12:00:00`);
     const days = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
     return days[d.getDay()];
@@ -33,125 +30,40 @@ export function Results() {
         setLoading(true);
         setError(null);
         setAllRouteMatches(false);
+        setTrips([]);
 
-        // 1. Consulta base: Filtramos por ruta activa y patrón de origen/destino
-        let query = supabase.from('rutas')
-          .select('*')
-          .eq('activa', true);
+        // Obtener viajes directamente del backend (que ya maneja lógica de paradas y viajes virtuales)
+        const availableTrips = await obtenerViajes({ 
+            origen: origin, 
+            destino: destination, 
+            fecha: date 
+        });
 
-        if (origin) {
-          query = query.ilike('origen', `%${origin}%`);
-        }
-        
-        if (destination) {
-          query = query.ilike('destino', `%${destination}%`);
-        }
-
-        const { data, error: supabaseError } = await query;
-
-        if (supabaseError) throw supabaseError;
-
-        // 2. Filtrado en Cliente por Días Operativos
-        const currentDayLabel = getDayLabel(date);
-        setSearchDayLabel(currentDayLabel);
-
-        if (data && data.length > 0) {
-          setAllRouteMatches(true); // Encontramos rutas de origen/destino, aunque no sepamos si hay fecha
-          
-          const filteredTrips = data.filter(route => {
-            // Si el array es nulo o vacío, asumimos que opera diario (o podrías asumir lo contrario)
-            // Aquí asumimos estricto: debe incluir el día.
-            if (!route.dias_operativos || !Array.isArray(route.dias_operativos)) return false;
-            return route.dias_operativos.includes(currentDayLabel);
-          });
-
-          // 3. Filtrar por Disponibilidad Real (Excluir Agotados)
-          if (filteredTrips.length > 0) {
-              // Rango del día seleccionado para buscar viajes ya creados
-              const startOfDay = new Date(`${date}T00:00:00`).toISOString();
-              // Usamos una fecha muy futura o fin del día para asegurar cobertura, 
-              // pero para ser precisos con la zona horaria local, mejor buscamos por coincidencia de fecha aproximada o traemos todo lo del día.
-              // Dado que guardamos timestamps exactos basados en la fecha + hora_salida de la ruta:
-              
-              // Vamos a consultar los viajes que coincidan con los IDs de las rutas candidatas
-              const routeIds = filteredTrips.map(r => r.id);
-              
-              const { data: existingTrips, error: tripsError } = await supabase
-                .from('viajes')
-                .select('ruta_id, asientos_ocupados, fecha_salida')
-                .in('ruta_id', routeIds)
-                .gte('fecha_salida', startOfDay)
-                .lt('fecha_salida', new Date(`${date}T23:59:59`).toISOString()); 
-
-              if (tripsError) throw tripsError;
-
-              // Filtro final: Si existe viaje y está lleno, lo quitamos.
-              const availableTrips = filteredTrips.filter(route => {
-                  // Reconstruimos la fecha esperada para esa ruta específica para asegurar match
-                  // Nota: Esto asume que la hora_salida no cambia dinámicamente.
-                  const expectedIso = new Date(`${date}T${route.hora_salida}:00`).toISOString();
-                  
-                  // Buscamos si hay un viaje registrado para esta ruta en este horario específico
-                  // (O relajamos la búsqueda solo por ruta_id si sabemos que hay 1 solo viaje x ruta x día)
-                  const tripInstance = existingTrips?.find(t => t.ruta_id === route.id);
-
-                  if (tripInstance) {
-                      const seatsLeft = route.capacidad - tripInstance.asientos_ocupados;
-                      return seatsLeft > 0; // Solo mostramos si hay al menos 1 asiento
-                  }
-                  
-                  // Si no existe el viaje, significa que nadie ha comprado, está 100% libre.
-                  return true;
-              });
-
-              setTrips(availableTrips);
-          } else {
-             setTrips([]);
-          }
+        if (availableTrips && availableTrips.length > 0) {
+            setTrips(availableTrips);
         } else {
-          setTrips([]);
+            setTrips([]);
         }
 
+        setLoading(false);
       } catch (err) {
-        console.error('Error fetching routes:', err);
-        setError('No pudimos cargar los viajes. Por favor intenta de nuevo.');
-      } finally {
+        console.error('Error fetching trips:', err);
+        setError('No se pudieron cargar los viajes. Intenta de nuevo.');
         setLoading(false);
       }
     }
 
-    fetchRoutes();
+    if (origin && destination && date) {
+        fetchRoutes();
+    } else {
+      setLoading(false);
+    }
   }, [origin, destination, date]);
 
   const handleReserve = (trip) => {
-    const reservation = {
-      id: `RES-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-      tripId: trip.id,
-      nombre: trip.nombre,
-      origin: trip.origen,
-      destination: trip.destino,
-      departureTime: trip.hora_salida, 
-      arrivalTime: trip.hora_llegada,
-      date: date,
-      price: trip.precio_base,
-      stops: trip.paradas || [],
-    };
-    navigate('/boleto', { state: { reservation } });
+    navigate('/boleto', { state: { selectedTrip: trip } });
   };
-
-  /* Funciones auxiliares para visualización */
-
-  // Muestra precios
-  const getDisplayPrice = (trip) => {
-    if (trip.precio_base > 0) return trip.precio_base;
-    // Si no tiene precio base, intentamos sacar el precio de la última parada
-    if (trip.paradas && trip.paradas.length > 0) {
-      return trip.paradas[trip.paradas.length - 1].precio;
-    }
-    return 0;
-  };
-
-  // Renderizado
+    
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
@@ -179,12 +91,10 @@ export function Results() {
     );
   }
 
-  // Lógica de Empty State Específico
   const showSpecificDayEmptyState = trips.length === 0 && allRouteMatches;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4">
           <Link
@@ -197,7 +107,6 @@ export function Results() {
         </div>
       </header>
 
-      {/* Search Info */}
       <section className="bg-white border-b border-gray-200 py-6 px-4">
         <div className="container mx-auto max-w-4xl">
           <h2 className="text-2xl font-bold text-gray-900 mb-3">
@@ -226,7 +135,6 @@ export function Results() {
         </div>
       </section>
 
-      {/* Trips List */}
       <section className="py-6 px-4">
         <div className="container mx-auto max-w-4xl space-y-4">
           {trips.length === 0 ? (
@@ -259,7 +167,6 @@ export function Results() {
                 className="bg-white rounded-xl shadow-sm hover:shadow-md transition border border-gray-100 overflow-hidden"
               >
                 <div className="p-6">
-                  {/* Trip Header */}
                   <div className="flex flex-col md:flex-row md:items-start justify-between mb-6 gap-4">
                     <div className="flex-1">
                       <h3 className="text-lg font-bold text-gray-900 mb-1">{trip.nombre}</h3>
@@ -267,39 +174,33 @@ export function Results() {
                         <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">
                           Ruta Directa
                         </span>
-                        <span className="text-xs text-gray-400">
-                          {Array.isArray(trip.dias_operativos) ? trip.dias_operativos.join(', ') : ''}
-                        </span>
                       </div>
                     </div>
 
-                    {/* Times Display */}
                     <div className="flex items-center gap-4 text-center">
                         <div>
                              <p className="text-sm text-gray-400">Salida</p>
-                             <p className="text-xl font-bold text-gray-900">{trip.hora_salida}</p>
+                             <p className="text-xl font-bold text-gray-900">{(trip.hora_salida || '').substring(0,5)}</p>
                         </div>
                         <div className="hidden md:block">
                             <div className="h-0.5 w-12 bg-gray-300 relative mx-2">
-                                {/* Flechita */}
                                 <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-gray-300"></div>
                             </div>
                         </div>
                          <div>
                              <p className="text-sm text-gray-400">Llegada</p>
-                             <p className="text-xl font-bold text-gray-900">{trip.hora_llegada}</p>
+                             <p className="text-xl font-bold text-gray-900">{(trip.hora_llegada || '').substring(0,5)}</p>
                         </div>
                     </div>
 
                     <div className="text-right">
                       <div className="text-2xl font-bold text-blue-600">
-                        ${getDisplayPrice(trip)}
+                        ${trip.precio}
                       </div>
                       <div className="text-xs text-gray-500">MXN</div>
                     </div>
                   </div>
 
-                  {/* Timeline of Stops */}
                   {trip.paradas && trip.paradas.length > 0 && (
                     <div className="mb-6 bg-gray-50 p-4 rounded-lg">
                       <h4 className="text-sm font-semibold text-gray-700 mb-3">
@@ -308,7 +209,6 @@ export function Results() {
                       <div className="relative">
                         {trip.paradas.map((stop, index) => (
                           <div key={index} className="flex gap-4 relative group">
-                            {/* Timeline Line */}
                             <div className="flex flex-col items-center">
                               <div
                                 className={`w-3 h-3 rounded-full border-2 z-10 ${
@@ -322,7 +222,6 @@ export function Results() {
                               )}
                             </div>
 
-                            {/* Stop Info */}
                             <div className={`pb-6 ${index === trip.paradas.length - 1 ? 'pb-0' : ''} flex-1`}>
                               <div className="flex items-center justify-between">
                                 <div>
@@ -330,7 +229,6 @@ export function Results() {
                                     {stop.name}
                                     </span>
                                     <span className="text-xs text-gray-500">
-                                      {/* Usamos el campo visual 'time' si existe, o calculamos el offset */}
                                       {stop.time ? stop.time : `+ ${stop.timeOffset}`}
                                     </span>
                                 </div>
@@ -347,12 +245,11 @@ export function Results() {
                     </div>
                   )}
 
-                  {/* Footer */}
                   <div className="flex flex-col sm:flex-row items-center justify-between pt-4 border-t border-gray-100 gap-4">
                     <div className="flex items-center gap-2 text-sm">
                       <Users className="w-4 h-4 text-gray-400" />
                       <span className="text-gray-600">
-                         Capacidad: <span className="font-medium text-gray-900">{trip.capacidad}</span>
+                         Capacidad: <span className="font-medium text-gray-900">{trip.asientos_disponibles}</span>
                       </span>
                     </div>
                     <button

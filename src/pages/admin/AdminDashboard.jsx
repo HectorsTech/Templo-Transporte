@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { 
+  obtenerRutas, 
+  crearRuta, 
+  actualizarRuta, 
+  eliminarRuta, 
+  obtenerViajes, 
+  obtenerReservasPorViaje, 
+  cancelarViaje 
+} from '../../services/apiService';
 import { Link, useNavigate } from 'react-router-dom';
-import emailjs from '@emailjs/browser';
+import { enviarNotificacionCancelacion } from '../../services/emailService';
 import { 
   ArrowLeft, Save, Plus, Trash2, Clock, MapPin, DollarSign, 
   Loader2, CheckCircle, AlertCircle, Edit2, X, RotateCcw, Power, QrCode, Calendar, Users, ChevronDown, ChevronUp, BellRing, Bus, MessageCircle, LogOut
@@ -56,7 +64,7 @@ export function AdminDashboard() {
     capacidad: 14,
     horaSalida: '08:00',
     horaLlegada: '10:00',
-    precioBase: 0
+    precio: 0
   });
 
   const [activa, setActiva] = useState(true);
@@ -71,47 +79,14 @@ export function AdminDashboard() {
 
   async function calculateStats() {
     try {
-        // 1. Ingresos y Boletos
-        const { data: reservations, error: resError } = await supabase
-            .from('reservas')
-            .select(`
-                id,
-                viajes (
-                    rutas (
-                        precio_base
-                    )
-                )
-            `);
-            
-        if (resError) throw resError;
-
-        let income = 0;
-        let tickets = 0;
-
-        if (reservations) {
-            tickets = reservations.length;
-            reservations.forEach(res => {
-                // Navegar la respuesta anidada: res.viajes.rutas.precio_base
-                // Nota: res.viajes puede ser array o objeto dependiendo de la relación, usalmente objeto si es N:1
-                // En este caso reserva -> viaje es N:1. viaje -> ruta es N:1.
-                const price = res.viajes?.rutas?.precio_base || 0;
-                income += price;
-            });
-        }
-
-        // 2. Viajes Activos (Futuros)
-        const today = new Date().toISOString();
-        const { count: tripsCount, error: tripsError } = await supabase
-            .from('viajes')
-            .select('id', { count: 'exact', head: true })
-            .gte('fecha_salida', today);
-            
-        if (tripsError) throw tripsError;
-
+        // Estadísticas simplificadas para backend MySQL
+        // Nota: Para estadísticas precisas como Ingresos, se recomienda un endpoint dedicado en el backend
+        const activeTrips = await obtenerViajes(); // Obtiene viajes futuros programados
+        
         setStats({
-            totalBoletos: tickets,
-            totalIngresos: income,
-            viajesActivos: tripsCount || 0
+            totalBoletos: '-', // Requiere endpoint de estadísticas
+            totalIngresos: 0, 
+            viajesActivos: activeTrips.length || 0
         });
 
     } catch (err) {
@@ -122,13 +97,9 @@ export function AdminDashboard() {
   async function fetchRoutes() {
     try {
       setFetching(true);
-      const { data, error } = await supabase
-        .from('rutas')
-        .select('*')
-        .eq('activa', true)
-        .order('id', { ascending: false });
-
-      if (error) throw error;
+      const data = await obtenerRutas();
+      // Filtrar activas si el endpoint devuelve todas, o confiar en el endpoint
+      // El endpoint /api/rutas devuelve solo activas.
       setRoutesList(data || []);
     } catch (error) {
       console.error('Error fetching routes:', error);
@@ -145,32 +116,23 @@ export function AdminDashboard() {
     setExpandedTripId(null);
     setLoadingTrips(true);
     
-    // Solo trae viajes a futuro (o hoy) con reservas
     try {
-        const localDate = new Date();
-        const year = localDate.getFullYear();
-        const month = String(localDate.getMonth() + 1).padStart(2, '0');
-        const day = String(localDate.getDate()).padStart(2, '0');
-        const today = `${year}-${month}-${day}`;
-        const { data, error } = await supabase
-            .from('viajes')
-            .select(`
-                *,
-                reservas (
-                    id,
-                    cliente_nombre,
-                    cliente_email,
-                    cliente_telefono,
-                    codigo_visual,
-                    validado
-                )
-            `)
-            .eq('ruta_id', route.id)
-            .gte('fecha_salida', today)
-            .order('fecha_salida', { ascending: true });
+        // 1. Obtener viajes activos de la ruta
+        const trips = await obtenerViajes({ ruta_id: route.id });
         
-        if (error) throw error;
-        setTripsList(data || []);
+        // 2. Obtener reservas para cada viaje (para mostrar lista de pasajeros)
+        // Nota: Esto podría optimizarse en el backend con un include_reservations=true
+        const tripsWithReservations = await Promise.all(trips.map(async (trip) => {
+             try {
+                 const reservas = await obtenerReservasPorViaje(trip.id);
+                 return { ...trip, reservas };
+             } catch (e) {
+                 console.warn(`Error cargando reservas para viaje ${trip.id}`, e);
+                 return { ...trip, reservas: [] };
+             }
+        }));
+
+        setTripsList(tripsWithReservations);
 
     } catch (err) {
         console.error("Error cargando viajes:", err);
@@ -185,49 +147,26 @@ export function AdminDashboard() {
     setTripsList([]);
   };
 
-  const cancelTripAndNotify = async (tripId, passengers, tripDateStr) => {
-     if (!window.confirm(`¿Estás SEGURO? Esto cancelará el viaje y enviará correo a ${passengers.length} pasajeros. Esta acción es irreversible.`)) {
+  const cancelTripAndNotify = async (tripId) => {
+     if (!window.confirm(`¿Estás SEGURO? Esto cancelará el viaje y enviará correo a todos los pasajeros. Esta acción es irreversible.`)) {
          return;
      }
 
      setProcessingCancellation(tripId);
 
      try {
-        // 1. Enviar correos (Bucle)
-        // Nota: En producción esto debería hacerse en Backend (Edge Function), pero Frontend es aceptable para demo controlada.
-        const notificationPromises = passengers.map(p => {
-             return emailjs.send(
-                 import.meta.env.VITE_EMAILJS_SERVICE_ID,      // 1. ID del Servicio
-                 import.meta.env.VITE_EMAILJS_TEMPLATE_CANCEL, // 2. ID del Template
-                 {
-                     to_email: p.cliente_email,
-                     to_name: p.cliente_nombre,
-                     route_name: `${selectedRouteForTrips.origen} - ${selectedRouteForTrips.destino}`, // Ajustar placeholder
-                     trip_date: new Date(tripDateStr).toLocaleDateString(),
-                     message: 'Lamentamos informar que su viaje ha sido cancelado por motivos operativos. Contáctenos para un reembolso.'
-                 },
-                 import.meta.env.VITE_EMAILJS_PUBLIC_KEY // Placeholder
-             ).catch(err => console.warn(`Fallo al enviar correo a ${p.cliente_email}`, err));
-        });
-
-        await Promise.all(notificationPromises);
-
-        // 2. Eliminar de Supabase (Cascade borrará reservas si está configurado, o borramos manual)
-        // Asumiendo ON DELETE CASCADE en la FK de reservas. Si no, borrar reservas primero.
-        const { error: deleteError } = await supabase
-            .from('viajes')
-            .delete()
-            .eq('id', tripId);
+        const motivo = prompt('Motivo de cancelación (opcional):') || 'Por motivos operativos';
         
-        if (deleteError) throw deleteError;
+        const resultado = await cancelarViaje(tripId, motivo);
 
-        // 3. UI Update
+        alert(`Viaje cancelado. ${resultado.reservas_afectadas || 0} pasajeros notificados.`);
+
+        // Actualizar UI
         setTripsList(current => current.filter(t => t.id !== tripId));
-        alert('Viaje cancelado y notificaciones enviadas.');
 
      } catch (err) {
          console.error("Error cancelando:", err);
-         alert("Hubo un error al cancelar. Verifica la consola.");
+         alert("Hubo un error al cancelar: " + err.message);
      } finally {
          setProcessingCancellation(null);
      }
@@ -287,7 +226,7 @@ export function AdminDashboard() {
       capacidad: 14,
       horaSalida: '08:00',
       horaLlegada: '10:00',
-      precioBase: 0
+      precio: 0
     });
     setStops([]);
     setActiva(true);
@@ -306,11 +245,12 @@ export function AdminDashboard() {
       capacidad: route.capacidad,
       horaSalida: route.hora_salida || '08:00',
       horaLlegada: route.hora_llegada || '10:00',
-      precioBase: route.precio_base
+      precio: route.precio
     });
 
     setActiva(route.activa ?? true); 
-    setSelectedDays(route.dias_operativos || DAYS_OF_WEEK);
+    // Usar dias_operacion que viene del backend MySQL
+    setSelectedDays(route.dias_operacion || route.dias_operativos || DAYS_OF_WEEK);
 
     if (route.paradas && Array.isArray(route.paradas)) {
       setStops(route.paradas.map(p => ({
@@ -333,22 +273,8 @@ export function AdminDashboard() {
 
     // Safety Check: Verificar si hay viajes futuros con reservas
     try {
-        const today = new Date().toISOString();
-        const { count, error: countError } = await supabase
-            .from('viajes')
-            .select('reservas(count)', { count: 'exact', head: true }) // Solo contar
-            .eq('ruta_id', id)
-            .gte('fecha_salida', today)
-            .not('reservas', 'is', null); // Filtro básico, mejor revisar lógica específica si es compleja
-
-        // Alternativa más segura: Traer viajes y checar sus reservas manualmente si la query compleja falla
-        const { data: futureTrips } = await supabase
-             .from('viajes')
-             .select('id, reservas(id)')
-             .eq('ruta_id', id)
-             .gte('fecha_salida', today);
-        
-        const hasActiveReservations = futureTrips?.some(t => t.reservas.length > 0);
+        const futureTrips = await obtenerViajes({ ruta_id: id });
+        const hasActiveReservations = futureTrips.some(t => t.asientos_ocupados > 0);
 
         if (hasActiveReservations) {
             alert('⚠️ ¡ALTO! Hay pasajeros con boletos comprados para fechas futuras en esta ruta. \n\nPor favor usa el botón "Ver Salidas" para cancelar esos viajes individualmente y notificar a los clientes primero.');
@@ -366,12 +292,7 @@ export function AdminDashboard() {
     }
 
     try {
-      const { error } = await supabase
-        .from('rutas')
-        .update({ activa: false })
-        .eq('id', id);
-
-      if (error) throw error;
+      await eliminarRuta(id);
 
       setMessage({ type: 'success', text: 'Ruta archivada correctamente' });
 
@@ -402,9 +323,10 @@ export function AdminDashboard() {
         const timeOffset = calculateMinutesDiff(formData.horaSalida, stop.time);
         return {
           name: stop.name,
-          timeOffset: `${timeOffset} min`,
+          timeOffset: timeOffset, // Guardamos número, no string "X min"
           time: stop.time,
-          precio: Number(stop.precio)
+          precio: Number(stop.precio) || 0,
+          precio_desde_aqui: Number(stop.precio) || 0 // Usar el precio ingresado en el input (que guarda en .precio)
         };
       });
 
@@ -415,28 +337,18 @@ export function AdminDashboard() {
         capacidad: Number(formData.capacidad),
         hora_salida: formData.horaSalida,
         hora_llegada: formData.horaLlegada,
-        precio_base: Number(formData.precioBase),
+        precio: Number(formData.precio),
+        duracion_minutos: calculateMinutesDiff(formData.horaSalida, formData.horaLlegada),
         paradas: mappedStops,
         activa: activa,
-        dias_operativos: selectedDays
+        dias_operacion: selectedDays // Usar dias_operacion para MySQL
       };
 
-      let error;
-      
       if (editingId) {
-        const { error: updateError } = await supabase
-          .from('rutas')
-          .update(payload)
-          .eq('id', editingId);
-        error = updateError;
+        await actualizarRuta(editingId, payload);
       } else {
-        const { error: insertError } = await supabase
-          .from('rutas')
-          .insert([payload]);
-        error = insertError;
+        await crearRuta(payload);
       }
-
-      if (error) throw error;
 
       setMessage({ 
         type: 'success', 
@@ -621,7 +533,7 @@ export function AdminDashboard() {
                  </div>
                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Precio ($)</label>
-                    <input type="number" name="precioBase" className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" value={formData.precioBase} onChange={handleChange} required />
+                    <input type="number" name="precio" className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" value={formData.precio} onChange={handleChange} required />
                  </div>
                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Capacidad</label>
