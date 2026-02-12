@@ -85,6 +85,7 @@ export const obtenerViajes = async (filtros = {}) => {
     if (filtros.destino) params.append('destino', filtros.destino);
     if (filtros.fecha) params.append('fecha', filtros.fecha);
     if (filtros.ruta_id) params.append('ruta_id', filtros.ruta_id);
+    if (filtros.admin_mode) params.append('admin_mode', 'true');
 
     const url = params.toString()
         ? `${API_URL}/api/viajes?${params}`

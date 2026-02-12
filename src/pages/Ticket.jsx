@@ -46,6 +46,7 @@ export function Ticket() {
             reservationPayload.ruta_id = selectedTrip.ruta_id;
             reservationPayload.fecha = selectedTrip.fecha_salida || selectedTrip.fecha; // Asegurar campo correcto
             reservationPayload.hora = selectedTrip.hora_salida;
+            reservationPayload.hora_origen = selectedTrip.hora_origen; // Identificador del viaje principal
         }
 
         const result = await crearReserva(reservationPayload);

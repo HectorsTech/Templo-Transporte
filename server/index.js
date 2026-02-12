@@ -281,7 +281,7 @@ app.get('/api/viajes', async (req, res) => {
       }
 
       // 2B. Viajes desde cada parada intermedia → destino
-      if (paradas && paradas.length > 0) {
+      if (!req.query.admin_mode && paradas && paradas.length > 0) {
         paradas.forEach(parada => {
           const cumpleOrigenParada = !origen ||
             (parada.name && parada.name.toLowerCase().includes(origen.toLowerCase()));
@@ -316,6 +316,7 @@ app.get('/api/viajes', async (req, res) => {
               destino: ruta.destino,
               fecha_salida: fecha || new Date().toISOString().split('T')[0],
               hora_salida: horaSalidaParada,
+              hora_origen: ruta.hora_salida, // Identificador del viaje principal
               hora_llegada: ruta.hora_llegada,
               precio: parseFloat(precioParada || ruta.precio), // Fallback al precio total si falla cálculo
               asientos_totales: asientosTotales,
@@ -408,7 +409,17 @@ app.post('/api/reservas', async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
-    const { viaje_id, ruta_id, fecha, hora, cliente_nombre, cliente_email, cliente_telefono, precio } = req.body;
+    const {
+      viaje_id,
+      ruta_id,
+      fecha,
+      hora,
+      hora_origen, // Nueva propiedad para identificar el viaje padre
+      cliente_nombre,
+      cliente_email,
+      cliente_telefono,
+      precio
+    } = req.body;
 
     console.log('📝 Nueva reserva iniciada:', {
       viaje_id,
@@ -441,16 +452,19 @@ app.post('/api/reservas', async (req, res) => {
       }
 
       // Buscar viaje existente
+      // Si es una parada intermedia, la "hora del viaje" es la hora_origen, no la hora de abordaje
+      const horaViajePrincipal = hora_origen || hora;
+
       const [viajesExistentes] = await connection.query(
         `SELECT v.*, r.origen, r.destino, r.precio, r.nombre as nombre_ruta
          FROM viajes v
          INNER JOIN rutas r ON v.ruta_id = r.id
-         WHERE v.ruta_id = ? 
+         WHERE v.ruta_id = ?
            AND DATE(v.fecha_salida) = DATE(?)
            AND TIME(v.hora_salida) = TIME(?)
            AND v.estado = 'programado'
          LIMIT 1`,
-        [ruta_id, fecha, hora]
+        [ruta_id, fecha, horaViajePrincipal]
       );
 
       if (viajesExistentes.length > 0) {
@@ -478,13 +492,13 @@ app.post('/api/reservas', async (req, res) => {
           ruta_id,
           capacidad: capacidadTotal,
           fecha,
-          hora
+          hora: horaViajePrincipal
         });
 
         const [nuevoViaje] = await connection.query(
           `INSERT INTO viajes (ruta_id, fecha_salida, hora_salida, precio, asientos_totales, asientos_disponibles, estado)
            VALUES (?, ?, ?, ?, ?, ?, 'programado')`,
-          [ruta_id, fecha, hora, precioFinal, capacidadTotal, capacidadTotal]
+          [ruta_id, fecha, horaViajePrincipal, precioFinal, capacidadTotal, capacidadTotal]
         );
 
         viajeId = nuevoViaje.insertId;

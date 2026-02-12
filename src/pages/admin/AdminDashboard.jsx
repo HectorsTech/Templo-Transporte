@@ -81,7 +81,7 @@ export function AdminDashboard() {
     try {
         // Estadísticas simplificadas para backend MySQL
         // Nota: Para estadísticas precisas como Ingresos, se recomienda un endpoint dedicado en el backend
-        const activeTrips = await obtenerViajes(); // Obtiene viajes futuros programados
+        const activeTrips = await obtenerViajes({ admin_mode: true }); // Obtiene viajes futuros programados
         
         setStats({
             totalBoletos: '-', // Requiere endpoint de estadísticas
@@ -98,9 +98,18 @@ export function AdminDashboard() {
     try {
       setFetching(true);
       const data = await obtenerRutas();
-      // Filtrar activas si el endpoint devuelve todas, o confiar en el endpoint
-      // El endpoint /api/rutas devuelve solo activas.
-      setRoutesList(data || []);
+      
+      const processedData = (data || []).map(r => {
+        let paradas = [];
+        try {
+           paradas = Array.isArray(r.paradas) ? r.paradas : 
+                   (typeof r.paradas === 'string' ? JSON.parse(r.paradas || '[]') : []);
+        } catch(e) { console.error("Error parseando paradas", e); }
+        
+        return { ...r, paradas };
+      });
+
+      setRoutesList(processedData);
     } catch (error) {
       console.error('Error fetching routes:', error);
     } finally {
@@ -117,8 +126,8 @@ export function AdminDashboard() {
     setLoadingTrips(true);
     
     try {
-        // 1. Obtener viajes activos de la ruta
-        const trips = await obtenerViajes({ ruta_id: route.id });
+        // 1. Obtener viajes activos de la ruta (Modo Admin: Solo troncales)
+        const trips = await obtenerViajes({ ruta_id: route.id, admin_mode: true });
         
         // 2. Obtener reservas para cada viaje (para mostrar lista de pasajeros)
         // Nota: Esto podría optimizarse en el backend con un include_reservations=true
@@ -273,7 +282,7 @@ export function AdminDashboard() {
 
     // Safety Check: Verificar si hay viajes futuros con reservas
     try {
-        const futureTrips = await obtenerViajes({ ruta_id: id });
+        const futureTrips = await obtenerViajes({ ruta_id: id, admin_mode: true });
         const hasActiveReservations = futureTrips.some(t => t.asientos_ocupados > 0);
 
         if (hasActiveReservations) {
@@ -644,11 +653,21 @@ export function AdminDashboard() {
                         <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${route.activa ? 'bg-green-500' : 'bg-gray-300'}`} title={route.activa ? 'Activa' : 'Inactiva'}></div>
                       </div>
                       
-                      <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
-                         <span>{route.origen}</span>
-                         <span>→</span>
-                         <span>{route.destino}</span>
-                      </div>
+                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 mb-2">
+                          <div className="flex items-center gap-1">
+                             <span>{route.origen}</span>
+                             <span>→</span>
+                             <span>{route.destino}</span>
+                          </div>
+                          
+                          {/* Indicador de Paradas */}
+                          {route.paradas && route.paradas.length > 0 && (
+                            <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100 font-medium text-[10px]">
+                               <MapPin className="w-3 h-3" />
+                               {route.paradas.length} Parada{route.paradas.length !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                       </div>
 
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">

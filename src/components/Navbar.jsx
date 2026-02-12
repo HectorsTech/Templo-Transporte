@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Menu, X, Home, Users, Mail, Heart, Bus } from 'lucide-react';
+import { Menu, X, Home, Users, Mail, Heart, Bus, Settings } from 'lucide-react';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -11,7 +11,8 @@ export function Navbar() {
     { name: 'Inicio', path: '/', icon: Home },
     { name: 'Quiénes Somos', path: '/quienes-somos', icon: Users },
     { name: 'Contáctanos', path: '/contacto', icon: Mail },
-    { name: 'Donaciones', path: '/donaciones', icon: Heart }
+    { name: 'Donaciones', path: '/donaciones', icon: Heart },
+    { name: 'Admin', path: '/admin', icon: Settings }
   ];
 
   return (
