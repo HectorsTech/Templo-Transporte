@@ -10,7 +10,7 @@ export function Results() {
   const origin = searchParams.get('origin') || '';
   const destination = searchParams.get('destination') || '';
   const date = searchParams.get('date') || '';
-  
+
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -33,16 +33,21 @@ export function Results() {
         setTrips([]);
 
         // Obtener viajes directamente del backend (que ya maneja lógica de paradas y viajes virtuales)
-        const availableTrips = await obtenerViajes({ 
-            origen: origin, 
-            destino: destination, 
-            fecha: date 
+        const availableTrips = await obtenerViajes({
+          origen: origin,
+          destino: destination,
+          fecha: date
         });
 
         if (availableTrips && availableTrips.length > 0) {
-            setTrips(availableTrips);
+          // Asignar asientos disponibles random entre 8 y 10, según la solicitud
+          const randomizedTrips = availableTrips.map(t => ({
+            ...t,
+            asientos_disponibles: Math.floor(Math.random() * 3) + 8
+          }));
+          setTrips(randomizedTrips);
         } else {
-            setTrips([]);
+          setTrips([]);
         }
 
         setLoading(false);
@@ -54,7 +59,7 @@ export function Results() {
     }
 
     if (origin && destination && date) {
-        fetchRoutes();
+      fetchRoutes();
     } else {
       setLoading(false);
     }
@@ -63,12 +68,12 @@ export function Results() {
   const handleReserve = (trip) => {
     navigate('/boleto', { state: { selectedTrip: trip } });
   };
-    
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
-         <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-         <p className="text-gray-600 font-medium">Buscando las mejores rutas para el {searchDayLabel}...</p>
+        <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+        <p className="text-gray-600 font-medium">Buscando las mejores rutas para el {searchDayLabel}...</p>
       </div>
     );
   }
@@ -80,7 +85,7 @@ export function Results() {
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-gray-900 mb-2">Hubo un error</h3>
           <p className="text-gray-600 mb-6">{error}</p>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
           >
@@ -116,18 +121,18 @@ export function Results() {
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-blue-600" />
               <span>
-                Origen: <strong className="text-gray-900">{origin || 'Cualquiera'}</strong> → 
+                Origen: <strong className="text-gray-900">{origin || 'Cualquiera'}</strong> →
                 Destino: <strong className="text-gray-900">{destination || 'Cualquiera'}</strong>
               </span>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-600" />
               {date && (
-                <span>{new Date(date + 'T12:00:00').toLocaleDateString('es-MX', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
+                <span>{new Date(date + 'T12:00:00').toLocaleDateString('es-MX', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
                 })}</span>
               )}
             </div>
@@ -144,7 +149,7 @@ export function Results() {
                 <>
                   <h3 className="text-lg font-medium text-gray-900">Sin salidas para este día</h3>
                   <p className="text-gray-500 max-w-md mx-auto mt-2">
-                    Encontramos rutas para tu destino, pero no operan los <strong>{searchDayLabel}</strong>. 
+                    Encontramos rutas para tu destino, pero no operan los <strong>{searchDayLabel}</strong>.
                     Por favor intenta seleccionar otra fecha.
                   </p>
                 </>
@@ -178,19 +183,19 @@ export function Results() {
                     </div>
 
                     <div className="flex items-center gap-4 text-center">
-                        <div>
-                             <p className="text-sm text-gray-400">Salida</p>
-                             <p className="text-xl font-bold text-gray-900">{(trip.hora_salida || '').substring(0,5)}</p>
+                      <div>
+                        <p className="text-sm text-gray-400">Salida</p>
+                        <p className="text-xl font-bold text-gray-900">{(trip.hora_salida || '').substring(0, 5)}</p>
+                      </div>
+                      <div className="hidden md:block">
+                        <div className="h-0.5 w-12 bg-gray-300 relative mx-2">
+                          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-gray-300"></div>
                         </div>
-                        <div className="hidden md:block">
-                            <div className="h-0.5 w-12 bg-gray-300 relative mx-2">
-                                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-gray-300"></div>
-                            </div>
-                        </div>
-                         <div>
-                             <p className="text-sm text-gray-400">Llegada</p>
-                             <p className="text-xl font-bold text-gray-900">{(trip.hora_llegada || '').substring(0,5)}</p>
-                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-400">Llegada</p>
+                        <p className="text-xl font-bold text-gray-900">{(trip.hora_llegada || '').substring(0, 5)}</p>
+                      </div>
                     </div>
 
                     <div className="text-right">
@@ -211,11 +216,10 @@ export function Results() {
                           <div key={index} className="flex gap-4 relative group">
                             <div className="flex flex-col items-center">
                               <div
-                                className={`w-3 h-3 rounded-full border-2 z-10 ${
-                                  index === 0 || index === trip.paradas.length - 1
-                                    ? 'bg-blue-600 border-blue-600'
-                                    : 'bg-white border-blue-400'
-                                }`}
+                                className={`w-3 h-3 rounded-full border-2 z-10 ${index === 0 || index === trip.paradas.length - 1
+                                  ? 'bg-blue-600 border-blue-600'
+                                  : 'bg-white border-blue-400'
+                                  }`}
                               ></div>
                               {index < trip.paradas.length - 1 && (
                                 <div className="w-0.5 h-full bg-blue-200 absolute top-3 bottom-[-12px]"></div>
@@ -225,17 +229,17 @@ export function Results() {
                             <div className={`pb-6 ${index === trip.paradas.length - 1 ? 'pb-0' : ''} flex-1`}>
                               <div className="flex items-center justify-between">
                                 <div>
-                                    <span className="font-medium text-gray-900 block">
+                                  <span className="font-medium text-gray-900 block">
                                     {stop.name}
-                                    </span>
-                                    <span className="text-xs text-gray-500">
-                                      {stop.time ? stop.time : `+ ${stop.timeOffset}`}
-                                    </span>
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    {stop.time ? stop.time : `+ ${stop.timeOffset}`}
+                                  </span>
                                 </div>
                                 {stop.precio > 0 && (
-                                    <span className="text-sm text-gray-600 bg-gray-200 px-2 py-1 rounded">
-                                        ${stop.precio}
-                                    </span>
+                                  <span className="text-sm text-gray-600 bg-gray-200 px-2 py-1 rounded">
+                                    ${stop.precio}
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -249,7 +253,7 @@ export function Results() {
                     <div className="flex items-center gap-2 text-sm">
                       <Users className="w-4 h-4 text-gray-400" />
                       <span className="text-gray-600">
-                         Capacidad: <span className="font-medium text-gray-900">{trip.asientos_disponibles}</span>
+                        Capacidad: <span className="font-medium text-gray-900">{trip.asientos_disponibles}</span>
                       </span>
                     </div>
                     <button
@@ -264,6 +268,24 @@ export function Results() {
               </div>
             ))
           )}
+        </div>
+
+        {/* CTA Banner: Solicitar más lugares */}
+        <div className="container mx-auto max-w-4xl mt-10">
+          <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-6 sm:p-8 text-center border border-blue-200 shadow-sm">
+            <h3 className="text-xl sm:text-2xl font-bold text-blue-900 mb-3">
+              ¿Necesitas más lugares o buscas algo diferente?
+            </h3>
+            <p className="text-blue-800 mb-6 max-w-2xl mx-auto">
+              Si el viaje que buscas no está disponible o necesitas reservar para un grupo más grande, contáctanos y dinos lo que necesitas. ¡Haremos todo lo posible por ayudarte!
+            </p>
+            <Link
+              to="/contacto"
+              className="inline-flex items-center justify-center bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition shadow-md"
+            >
+              Contactar ahora
+            </Link>
+          </div>
         </div>
       </section>
     </div>

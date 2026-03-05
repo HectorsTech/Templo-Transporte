@@ -13,7 +13,7 @@ export function Home() {
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [selectedDate, setSelectedDate] = useState(null);
-  
+
   // Estados para datos dinámicos
   const [availableOrigins, setAvailableOrigins] = useState([]);
   const [availableDestinations, setAvailableDestinations] = useState([]);
@@ -35,18 +35,18 @@ export function Home() {
         setLoading(true);
         const data = await obtenerRutas();
 
-          if (data) {
+        if (data) {
           const routes = data.filter(r => r.activa);
           setActiveRoutes(routes); // Guardar para uso posterior
-          
+
           // Extraer orígenes incluyendo paradas
           const allOrigins = new Set();
           const allDests = new Set();
-          
+
           routes.forEach(r => {
             allOrigins.add(r.origen);
             allDests.add(r.destino);
-            
+
             // Agregar paradas como orígenes posibles si no es solo destino final
             if (r.paradas && Array.isArray(r.paradas)) {
               r.paradas.forEach(p => {
@@ -54,7 +54,7 @@ export function Home() {
               });
             }
           });
-          
+
           setAvailableOrigins([...allOrigins].sort());
           setAllDestinations([...allDests].sort()); // Guardar todos los destinos
           setAvailableDestinations([...allDests].sort()); // Por defecto, mostrar todos
@@ -82,7 +82,7 @@ export function Home() {
     // Filtrar rutas que tengan el origen seleccionado (directo o parada)
     const filteredRoutes = activeRoutes.filter(r => {
       const origenDirecto = r.origen.toLowerCase() === origin.toLowerCase();
-      const paradaMatch = r.paradas && Array.isArray(r.paradas) && r.paradas.some(p => 
+      const paradaMatch = r.paradas && Array.isArray(r.paradas) && r.paradas.some(p =>
         p.name && p.name.toLowerCase() === origin.toLowerCase()
       );
       return origenDirecto || paradaMatch;
@@ -96,7 +96,7 @@ export function Home() {
 
     const sortedDestinos = [...destinosDisponibles].sort();
     setAvailableDestinations(sortedDestinos);
-    
+
     // Si el destino seleccionado ya no está disponible, limpiarlo
     if (destination && !sortedDestinos.includes(destination)) {
       setDestination('');
@@ -121,19 +121,19 @@ export function Home() {
         // 1. Buscar rutas que coincidan (directas o desde paradas)
         const allRoutes = await obtenerRutas();
         const routes = allRoutes.filter(r => {
-            if (!r.activa) return false;
-            
-            // Checar destino
-            const destinoMatch = r.destino.toLowerCase().includes(destination.toLowerCase());
-            if (!destinoMatch) return false;
+          if (!r.activa) return false;
 
-            // Checar origen (directo o parada)
-            const origenDirecto = r.origen.toLowerCase().includes(origin.toLowerCase());
-            const paradaMatch = r.paradas && Array.isArray(r.paradas) && r.paradas.some(p => 
-                p.name && p.name.toLowerCase().includes(origin.toLowerCase())
-            );
+          // Checar destino
+          const destinoMatch = r.destino.toLowerCase().includes(destination.toLowerCase());
+          if (!destinoMatch) return false;
 
-            return origenDirecto || paradaMatch;
+          // Checar origen (directo o parada)
+          const origenDirecto = r.origen.toLowerCase().includes(origin.toLowerCase());
+          const paradaMatch = r.paradas && Array.isArray(r.paradas) && r.paradas.some(p =>
+            p.name && p.name.toLowerCase().includes(origin.toLowerCase())
+          );
+
+          return origenDirecto || paradaMatch;
         });
 
         if (!routes || routes.length === 0) {
@@ -143,7 +143,7 @@ export function Home() {
 
         // 2. Obtener viajes existentes para checar ocupación (pasamos origin para que el backend filtre/genere virtuales)
         const futureTrips = await obtenerViajes({ origen: origin, destino: destination });
-        
+
         console.log('🚌 Viajes obtenidos del backend:', futureTrips.map(t => ({
           id: t.id,
           ruta_id: t.ruta_id,
@@ -175,7 +175,7 @@ export function Home() {
               const month = String(currentDate.getMonth() + 1).padStart(2, '0');
               const day = String(currentDate.getDate()).padStart(2, '0');
               const dateStr = `${year}-${month}-${day}`;
-              
+
               // Calcular hora y precio ajustados si el origen es una parada intermedia
               let adjustedTime = route.hora_salida;
               let adjustedPrice = route.precio;
@@ -183,42 +183,42 @@ export function Home() {
 
               // Si el origen buscado no coincide con el origen de la ruta, buscar en paradas
               if (origin && route.origen.toLowerCase() !== origin.toLowerCase() && route.paradas) {
-                  const stop = route.paradas.find(p => p.name && p.name.toLowerCase().includes(origin.toLowerCase()));
-                  if (stop) {
-                      originName = stop.name;
-                      
-                      // Ajustar hora
-                      if (stop.time) {
-                          // Si es hora absoluta, calcular diff para saber si es el mismo viaje
-                          // Pero para mostrar, usamos la hora de la parada
-                           adjustedTime = stop.time;
-                      } else if (stop.timeOffset) {
-                          // Calcular hora basada en offset
-                          const [h, m] = route.hora_salida.split(':').map(Number);
-                          const totalMin = h * 60 + m + stop.timeOffset;
-                          const newH = Math.floor(totalMin / 60) % 24;
-                          const newM = totalMin % 60;
-                          adjustedTime = `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}:00`; // Asegurar formato HH:mm:ss
-                      }
+                const stop = route.paradas.find(p => p.name && p.name.toLowerCase().includes(origin.toLowerCase()));
+                if (stop) {
+                  originName = stop.name;
 
-                      // Ajustar precio
-                      if (stop.precio_desde_aqui) {
-                          adjustedPrice = stop.precio_desde_aqui;
-                      } else {
-                          // Calcular proporcional si no hay precio fijo
-                          // (Simple fallback, idealmente el backend decide esto)
-                          // Si no hay precio explícito, mostramos "Desde $X" o el base
-                      }
+                  // Ajustar hora
+                  if (stop.time) {
+                    // Si es hora absoluta, calcular diff para saber si es el mismo viaje
+                    // Pero para mostrar, usamos la hora de la parada
+                    adjustedTime = stop.time;
+                  } else if (stop.timeOffset) {
+                    // Calcular hora basada en offset
+                    const [h, m] = route.hora_salida.split(':').map(Number);
+                    const totalMin = h * 60 + m + stop.timeOffset;
+                    const newH = Math.floor(totalMin / 60) % 24;
+                    const newM = totalMin % 60;
+                    adjustedTime = `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}:00`; // Asegurar formato HH:mm:ss
                   }
+
+                  // Ajustar precio
+                  if (stop.precio_desde_aqui) {
+                    adjustedPrice = stop.precio_desde_aqui;
+                  } else {
+                    // Calcular proporcional si no hay precio fijo
+                    // (Simple fallback, idealmente el backend decide esto)
+                    // Si no hay precio explícito, mostramos "Desde $X" o el base
+                  }
+                }
               }
 
               // Formatear hora para comparación (asegurar HH:mm:ss)
               const formatTime = (t) => {
-                  if (!t) return '00:00:00';
-                  const parts = t.split(':');
-                  return `${parts[0].padStart(2,'0')}:${parts[1].padStart(2,'0')}:00`;
+                if (!t) return '00:00:00';
+                const parts = t.split(':');
+                return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
               };
-              
+
               const targetTime = formatTime(adjustedTime);
 
               // Buscar si existe un viaje específico para esta ruta y fecha
@@ -226,17 +226,15 @@ export function Home() {
                 // Extraer solo la parte de fecha (YYYY-MM-DD) del timestamp ISO
                 const tripDate = t.fecha_salida?.split('T')[0];
                 const tripTime = formatTime(t.hora_salida);
-                
+
                 // Coincidir ruta, fecha y HORA (la hora del viaje virtual debe coincidir con la calculada)
-                return t.ruta_id === route.id && 
-                       tripDate === dateStr &&
-                       tripTime === targetTime;
+                return t.ruta_id === route.id &&
+                  tripDate === dateStr &&
+                  tripTime === targetTime;
               });
 
-              // Si existe un viaje, usar su disponibilidad real; si no, usar capacidad de la ruta
-              const disponibles = tripInstance 
-                ? tripInstance.asientos_disponibles 
-                : route.capacidad;
+              // boletos disponibles: random entre 8 y 10, según la solicitud
+              const disponibles = Math.floor(Math.random() * 3) + 8;
 
               // console.log('📅 Fecha:', dateStr, 'Ruta:', route.nombre, {
               //   tripFound: !!tripInstance,
@@ -358,9 +356,9 @@ export function Home() {
                     disabled={loading || (origin && availableDestinations.length === 0)}
                   >
                     <option value="">
-                      {!origin 
-                        ? 'Selecciona tu destino' 
-                        : availableDestinations.length === 0 
+                      {!origin
+                        ? 'Selecciona tu destino'
+                        : availableDestinations.length === 0
                           ? 'No hay destinos disponibles desde este origen'
                           : 'Selecciona tu destino'
                       }
@@ -378,7 +376,7 @@ export function Home() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Selecciona día de viaje
                   </label>
-                  
+
                   {loadingDays ? (
                     <div className="flex justify-center items-center py-12 bg-gray-50 rounded-lg border border-gray-200">
                       <Loader2 className="w-6 h-6 text-blue-600 animate-spin mr-2" />
@@ -396,11 +394,10 @@ export function Home() {
                           key={`${day.routeId}-${day.fecha}-${index}`}
                           type="button"
                           onClick={() => handleSelectDay(day)}
-                          className={`w-full text-left p-4 rounded-lg border-2 transition-all hover:shadow-md ${
-                            selectedDate?.fecha === day.fecha && selectedDate?.routeId === day.routeId
+                          className={`w-full text-left p-4 rounded-lg border-2 transition-all hover:shadow-md ${selectedDate?.fecha === day.fecha && selectedDate?.routeId === day.routeId
                               ? 'border-blue-600 bg-blue-50 shadow-md'
                               : 'border-gray-200 bg-white hover:border-blue-300'
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
@@ -420,9 +417,8 @@ export function Home() {
                                 </span>
                               </div>
                             </div>
-                            <ChevronRight className={`w-5 h-5 transition-all ${
-                              selectedDate?.fecha === day.fecha ? 'text-blue-600' : 'text-gray-400'
-                            }`} />
+                            <ChevronRight className={`w-5 h-5 transition-all ${selectedDate?.fecha === day.fecha ? 'text-blue-600' : 'text-gray-400'
+                              }`} />
                           </div>
                         </button>
                       ))}
@@ -434,11 +430,10 @@ export function Home() {
               {/* Search Button */}
               <button
                 type="submit"
-                className={`w-full py-4 rounded-lg font-semibold transition flex items-center justify-center gap-2 shadow-lg ${
-                  canSubmit
+                className={`w-full py-4 rounded-lg font-semibold transition flex items-center justify-center gap-2 shadow-lg ${canSubmit
                     ? 'bg-blue-600 text-white hover:bg-blue-700'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
+                  }`}
                 disabled={!canSubmit}
               >
                 <Search className="w-5 h-5" />
@@ -456,9 +451,9 @@ export function Home() {
             Rutas Disponibles
           </h3>
           {loading ? (
-             <div className="flex justify-center p-8">
-               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-             </div>
+            <div className="flex justify-center p-8">
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+            </div>
           ) : popularRoutes.length > 0 ? (
             <div className="grid md:grid-cols-3 gap-4">
               {popularRoutes.map((route) => (
@@ -468,9 +463,9 @@ export function Home() {
                   className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition cursor-pointer border border-gray-100 group relative overflow-hidden transform hover:-translate-y-1"
                 >
                   <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition">
-                     <div className="bg-blue-50 text-blue-600 p-1 rounded-full">
-                       <ArrowRight className="w-4 h-4" />
-                     </div>
+                    <div className="bg-blue-50 text-blue-600 p-1 rounded-full">
+                      <ArrowRight className="w-4 h-4" />
+                    </div>
                   </div>
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2 text-gray-900 font-medium text-lg">
@@ -484,7 +479,7 @@ export function Home() {
                       </div>
                       {route.destino}
                     </div>
-                    
+
                     <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center text-sm">
                       <span className="text-gray-500 flex items-center gap-1">
                         <Clock className="w-4 h-4" /> {route.hora_salida || 'Por definir'}
@@ -498,7 +493,7 @@ export function Home() {
               ))}
             </div>
           ) : (
-             <p className="text-gray-500 text-center">No hay rutas activas disponibles.</p>
+            <p className="text-gray-500 text-center">No hay rutas activas disponibles.</p>
           )}
         </div>
       </section>
@@ -519,7 +514,7 @@ export function Home() {
             {/* Article 1 - Quiénes Somos */}
             <article className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition group">
               <div className="aspect-video overflow-hidden">
-                <img 
+                <img
                   src="https://images.unsplash.com/photo-1628880536991-8729fcd571a0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxMRFMlMjB0ZW1wbGUlMjBtb3Jtb24lMjBjaHVyY2h8ZW58MXx8fHwxNzcwODU2OTIzfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
                   alt="Templo SUD"
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
@@ -535,7 +530,7 @@ export function Home() {
                   </h4>
                 </div>
                 <p className="text-gray-600 mb-4 leading-relaxed">
-                  Facilitar el acceso a los templos de la Iglesia de Jesucristo de los Santos de los Últimos Días, 
+                  Facilitar el acceso a los templos de la Iglesia de Jesucristo de los Santos de los Últimos Días,
                   brindando un servicio de transporte cómodo, seguro y accesible para todas las familias.
                 </p>
                 <button className="flex items-center gap-1 text-blue-600 font-medium hover:gap-2 transition-all">
@@ -548,7 +543,7 @@ export function Home() {
             {/* Article 2 - Por Qué Elegirnos */}
             <article className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition group">
               <div className="aspect-video overflow-hidden">
-                <img 
+                <img
                   src="https://images.unsplash.com/photo-1640522337094-8c71d9c1d6f9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwZW9wbGUlMjB0cmF2ZWxpbmclMjB0b2dldGhlciUyMHZhbnxlbnwxfHx8fDE3NzA4NTY5MjN8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
                   alt="Viajando juntos"
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
@@ -564,7 +559,7 @@ export function Home() {
                   </h4>
                 </div>
                 <p className="text-gray-600 mb-4 leading-relaxed">
-                  Con más de 10 años de experiencia, conocemos las necesidades de nuestra comunidad. 
+                  Con más de 10 años de experiencia, conocemos las necesidades de nuestra comunidad.
                   Conductores capacitados, unidades modernas y salidas puntuales garantizan tu tranquilidad.
                 </p>
                 <button className="flex items-center gap-1 text-blue-600 font-medium hover:gap-2 transition-all">
@@ -577,7 +572,7 @@ export function Home() {
             {/* Article 3 - Comunidad */}
             <article className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition group">
               <div className="aspect-video overflow-hidden">
-                <img 
+                <img
                   src="https://images.unsplash.com/photo-1722252799088-4781aabc3d0f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYW1pbHklMjBjb21tdW5pdHklMjBnYXRoZXJpbmd8ZW58MXx8fHwxNzcwODU2OTI0fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
                   alt="Comunidad"
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
@@ -593,7 +588,7 @@ export function Home() {
                   </h4>
                 </div>
                 <p className="text-gray-600 mb-4 leading-relaxed">
-                  Formamos parte de una gran familia. Miles de miembros confían en nosotros cada mes 
+                  Formamos parte de una gran familia. Miles de miembros confían en nosotros cada mes
                   para sus visitas al templo, sellando ordenanzas y fortaleciendo lazos familiares.
                 </p>
                 <button className="flex items-center gap-1 text-blue-600 font-medium hover:gap-2 transition-all">
@@ -650,34 +645,34 @@ export function Home() {
       {/* MODAL DE DETALLES DE RUTA */}
       {selectedRoute && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-           <div 
-             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-             onClick={() => setSelectedRoute(null)}
-           ></div>
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
+            onClick={() => setSelectedRoute(null)}
+          ></div>
 
-           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full relative z-10 overflow-hidden p-6">
-              <button 
-                 onClick={() => setSelectedRoute(null)} 
-                 className="absolute top-4 right-4 p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition"
-              >
-                 <MapPin className="w-5 h-5 text-gray-600" />
-              </button>
-              
-              <h3 className="text-2xl font-bold text-gray-900 mb-4">
-                {selectedRoute.origen} → {selectedRoute.destino}
-              </h3>
-              
-              <p className="text-gray-600 mb-6">
-                Haz clic en "Seleccionar" para elegir esta ruta y ver las fechas disponibles.
-              </p>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full relative z-10 overflow-hidden p-6">
+            <button
+              onClick={() => setSelectedRoute(null)}
+              className="absolute top-4 right-4 p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition"
+            >
+              <MapPin className="w-5 h-5 text-gray-600" />
+            </button>
 
-              <button 
-                onClick={handleSelectRoute}
-                className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
-              >
-                Seleccionar Ruta
-              </button>
-           </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-4">
+              {selectedRoute.origen} → {selectedRoute.destino}
+            </h3>
+
+            <p className="text-gray-600 mb-6">
+              Haz clic en "Seleccionar" para elegir esta ruta y ver las fechas disponibles.
+            </p>
+
+            <button
+              onClick={handleSelectRoute}
+              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+            >
+              Seleccionar Ruta
+            </button>
+          </div>
         </div>
       )}
     </div>
